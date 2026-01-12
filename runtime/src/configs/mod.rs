@@ -321,3 +321,43 @@ impl pallet_parachain_template::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 	type WeightInfo = pallet_parachain_template::weights::SubstrateWeight<Runtime>;
 }
+
+parameter_types! {
+	pub const NftsCollectionDeposit: Balance = EXISTENTIAL_DEPOSIT * 10;
+	pub const NftsItemDeposit: Balance = EXISTENTIAL_DEPOSIT;
+	pub const NftsMetadataDepositBase: Balance = EXISTENTIAL_DEPOSIT;
+	pub const NftsAttributeDepositBase: Balance = EXISTENTIAL_DEPOSIT;
+	pub const NftsDepositPerByte: Balance = EXISTENTIAL_DEPOSIT / 100;
+	pub NftsFeatures: pallet_nfts::PalletFeatures = pallet_nfts::PalletFeatures::all_enabled();
+}
+
+/// Configure pallet-nfts for NFT functionality
+impl pallet_nfts::Config for Runtime {
+	type RuntimeEvent = RuntimeEvent;
+	type CollectionId = u32;
+	type ItemId = u32;
+	type Currency = Balances;
+	type ForceOrigin = EnsureRoot<AccountId>;
+	type CreateOrigin = frame_support::traits::AsEnsureOriginWithArg<frame_system::EnsureSigned<AccountId>>;
+	type Locker = ();
+	type CollectionDeposit = NftsCollectionDeposit;
+	type ItemDeposit = NftsItemDeposit;
+	type MetadataDepositBase = NftsMetadataDepositBase;
+	type AttributeDepositBase = NftsAttributeDepositBase;
+	type DepositPerByte = NftsDepositPerByte;
+	type StringLimit = ConstU32<256>;
+	type KeyLimit = ConstU32<64>;
+	type ValueLimit = ConstU32<256>;
+	type ApprovalsLimit = ConstU32<20>;
+	type ItemAttributesApprovalsLimit = ConstU32<30>;
+	type MaxTips = ConstU32<10>;
+	type MaxDeadlineDuration = ConstU32<12960000>;
+	type MaxAttributesPerCall = ConstU32<10>;
+	type Features = NftsFeatures;
+	type OffchainSignature = sp_runtime::MultiSignature;
+	type OffchainPublic = <sp_runtime::MultiSignature as sp_runtime::traits::Verify>::Signer;
+	type WeightInfo = pallet_nfts::weights::SubstrateWeight<Runtime>;
+	type BlockNumberProvider = System;
+	#[cfg(feature = "runtime-benchmarks")]
+	type Helper = ();
+}
