@@ -52,8 +52,8 @@ pub type LocationToAccountId = (
 	AccountId32Aliases<RelayNetwork, AccountId>,
 );
 
-/// Means for transacting assets on this chain.
-pub type LocalAssetTransactor = FungibleAdapter<
+/// Means for transacting the native currency on this chain.
+pub type FungibleTransactor = FungibleAdapter<
 	// Use this currency:
 	Balances,
 	// Use this currency when it is a fungible asset matching the given location or name:
@@ -65,6 +65,48 @@ pub type LocalAssetTransactor = FungibleAdapter<
 	// We don't track any teleports.
 	(),
 >;
+
+/// Matcher for NFT assets. Matches assets that are identified as NFTs from this chain.
+///
+/// NFT assets are expected to have the format:
+/// Location: { parents: 0, interior: X2(PalletInstance(51), GeneralIndex(collection_id)) }
+/// AssetInstance: Index(item_id)
+///
+/// Note: For production use with pallet-nfts, you would implement a custom adapter
+/// that bridges the nonfungibles_v2 traits (used by pallet-nfts) to the nonfungibles
+/// traits expected by NonFungiblesAdapter. See the README for details.
+pub struct NftsMatcher;
+impl xcm_executor::traits::MatchesNonFungibles<u32, u32> for NftsMatcher {
+	fn matches_nonfungibles(a: &Asset) -> core::result::Result<(u32, u32), xcm_executor::traits::Error> {
+		// Extract collection_id and item_id from the asset
+		// Asset ID location should be: PalletInstance(51)/GeneralIndex(collection_id)
+		// Asset fungibility should be: NonFungible(Index(item_id))
+		let (collection_id, item_id) = match (&a.id.0.unpack(), &a.fun) {
+			(
+				(0, [PalletInstance(51), GeneralIndex(collection)]),
+				Fungibility::NonFungible(AssetInstance::Index(item)),
+			) => (*collection as u32, *item as u32),
+			_ => return Err(xcm_executor::traits::Error::AssetNotHandled),
+		};
+
+		Ok((collection_id, item_id))
+	}
+}
+
+// Note: NonFungiblesAdapter requires the underlying pallet to implement
+// `nonfungibles::Mutate` and `nonfungibles::Transfer` traits. However,
+// pallet-nfts implements the newer `nonfungibles_v2` traits instead.
+//
+// For production cross-chain NFT transfers, you would need to either:
+// 1. Create a wrapper that implements the old nonfungibles traits using pallet-nfts
+// 2. Use a custom TransactAsset implementation
+// 3. Use pallet-uniques which implements the old traits (but is deprecated)
+//
+// For this tutorial, we demonstrate the XCM configuration pattern.
+// The actual NFT transactor would be added once trait compatibility is resolved.
+
+/// Asset transactor - currently fungible only, NFT support requires trait bridging
+pub type LocalAssetTransactor = FungibleTransactor;
 
 /// This is the type we use to convert an (incoming) XCM origin into a local `Origin` instance,
 /// ready for dispatching a transaction with Xcm's `Transact`. There is an `OriginKind` which can
@@ -119,6 +161,25 @@ pub type Barrier = TrailingSetTopicAsId<
 	>,
 >;
 
+/// Identifies assets that are accepted as reserves for NFTs from sibling parachains.
+/// This allows NFTs from sibling chains to be treated as reserve assets.
+///
+/// Note: This is prepared for when full NFT XCM support is implemented.
+pub struct NftsFromSiblings;
+impl frame_support::traits::ContainsPair<Asset, Location> for NftsFromSiblings {
+	fn contains(asset: &Asset, origin: &Location) -> bool {
+		// Accept NFTs from sibling parachains as reserves
+		matches!(
+			(origin.unpack(), &asset.fun),
+			((1, [Parachain(_)]), Fungibility::NonFungible(_))
+		)
+	}
+}
+
+/// Combined reserve configuration: native assets + NFTs from siblings (when enabled).
+/// Currently only NativeAsset is active until NFT XCM adapter is fully implemented.
+pub type IsReserveAsset = NativeAsset;
+
 pub struct XcmConfig;
 impl xcm_executor::Config for XcmConfig {
 	type RuntimeCall = RuntimeCall;
@@ -127,7 +188,7 @@ impl xcm_executor::Config for XcmConfig {
 	// How to withdraw and deposit an asset.
 	type AssetTransactor = LocalAssetTransactor;
 	type OriginConverter = XcmOriginToTransactDispatchOrigin;
-	type IsReserve = NativeAsset;
+	type IsReserve = IsReserveAsset;
 	type IsTeleporter = (); // Teleporting is disabled.
 	type UniversalLocation = UniversalLocation;
 	type Barrier = Barrier;
@@ -177,8 +238,8 @@ impl pallet_xcm::Config for Runtime {
 	// ^ Disable dispatchable execute on the XCM pallet.
 	// Needs to be `Everything` for local testing.
 	type XcmExecutor = XcmExecutor<XcmConfig>;
-	type XcmTeleportFilter = Everything;
-	type XcmReserveTransferFilter = Nothing;
+	type XcmTeleportFilter = Nothing; // Teleporting disabled
+	type XcmReserveTransferFilter = Everything; // Allow reserve transfers including NFTs
 	type Weigher = FixedWeightBounds<UnitWeightCost, RuntimeCall, MaxInstructions>;
 	type UniversalLocation = UniversalLocation;
 	type RuntimeOrigin = RuntimeOrigin;

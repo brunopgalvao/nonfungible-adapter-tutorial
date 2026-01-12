@@ -1,0 +1,16 @@
+{
+  "name": "nonfungible-adapter-demo",
+  "version": "1.0.0",
+  "description": "Demo scripts for cross-chain NFT transfers using NonFungibleAdapter",
+  "type": "module",
+  "scripts": {
+    "setup": "node setup-collections.js",
+    "transfer": "node transfer-nft.js"
+  },
+  "dependencies": {
+    "polkadot-api": "^1.9.0",
+    "@polkadot-api/descriptors": "^1.0.0",
+    "@polkadot-api/sr25519": "^0.1.0",
+    "@polkadot-api/ws-provider": "^0.3.0"
+  }
+}
