@@ -1,265 +1,323 @@
-<div align="center">
+# NonFungible Adapter Tutorial
 
-# Polkadot SDK's Parachain Template
+A comprehensive tutorial demonstrating how to configure cross-chain NFT transfers using the Polkadot SDK's `NonFungibleAdapter` and `pallet-nfts`.
 
-<img height="70px" alt="Polkadot SDK Logo" src="https://github.com/paritytech/polkadot-sdk/raw/master/docs/images/Polkadot_Logo_Horizontal_Pink_White.png#gh-dark-mode-only"/>
-<img height="70px" alt="Polkadot SDK Logo" src="https://github.com/paritytech/polkadot-sdk/raw/master/docs/images/Polkadot_Logo_Horizontal_Pink_Black.png#gh-light-mode-only"/>
+## Overview
 
-> This is a template for creating a [parachain](https://wiki.polkadot.network/docs/learn-parachains) based on Polkadot SDK.
->
-> This template is automatically updated after releases in the main [Polkadot SDK monorepo](https://github.com/paritytech/polkadot-sdk).
+This repository provides a working example of:
+- Configuring `pallet-nfts` in a parachain runtime
+- Setting up XCM configuration for NFT transfers
+- Understanding the `NonFungibleAdapter` pattern
+- Running two parachains locally with Zombienet
 
-</div>
+## Prerequisites
 
-## Table of Contents
+- Rust toolchain (stable)
+- Node.js 18+
+- [Zombienet](https://github.com/paritytech/zombienet)
+- `polkadot` and `polkadot-omni-node` binaries
 
-- [Intro](#intro)
-
-- [Template Structure](#template-structure)
-
-- [Getting Started](#getting-started)
-
-- [Starting a Development Chain](#starting-a-development-chain)
-
-  - [Omni Node](#omni-node-prerequisites)
-  - [Zombienet setup with Omni Node](#zombienet-setup-with-omni-node)
-  - [Parachain Template Node](#parachain-template-node)
-  - [Connect with the Polkadot-JS Apps Front-End](#connect-with-the-polkadot-js-apps-front-end)
-  - [Takeaways](#takeaways)
-
-- [Runtime development](#runtime-development)
-- [Contributing](#contributing)
-- [Getting Help](#getting-help)
-
-## Intro
-
-- ⏫ This template provides a starting point to build a [parachain](https://wiki.polkadot.network/docs/learn-parachains).
-
-- ☁️ It is based on the
-  [Cumulus](https://paritytech.github.io/polkadot-sdk/master/polkadot_sdk_docs/polkadot_sdk/cumulus/index.html) framework.
-
-- 🔧 Its runtime is configured with a single custom pallet as a starting point, and a handful of ready-made pallets
-  such as a [Balances pallet](https://paritytech.github.io/polkadot-sdk/master/pallet_balances/index.html).
-
-- 👉 Learn more about parachains [here](https://wiki.polkadot.network/docs/learn-parachains)
-
-## Template Structure
-
-A Polkadot SDK based project such as this one consists of:
-
-- 🧮 the [Runtime](./runtime/README.md) - the core logic of the parachain.
-- 🎨 the [Pallets](./pallets/README.md) - from which the runtime is constructed.
-- 💿 a [Node](./node/README.md) - the binary application, not part of the project default-members list and not compiled unless
-  building the project with `--workspace` flag, which builds all workspace members, and is an alternative to
-  [Omni Node](https://paritytech.github.io/polkadot-sdk/master/polkadot_sdk_docs/reference_docs/omni_node/index.html).
-
-## Getting Started
-
-- 🦀 The template is using the Rust language.
-
-- 👉 Check the
-  [Rust installation instructions](https://www.rust-lang.org/tools/install) for your system.
-
-- 🛠️ Depending on your operating system and Rust version, there might be additional
-  packages required to compile this template - please take note of the Rust compiler output.
-
-Fetch parachain template code:
-
-```sh
-git clone https://github.com/paritytech/polkadot-sdk-parachain-template.git parachain-template
-
-cd parachain-template
-```
-
-## Starting a Development Chain
-
-The parachain template relies on a hardcoded parachain id which is defined in the runtime code
-and referenced throughout the contents of this file as `{{PARACHAIN_ID}}`. Please replace
-any command or file referencing this placeholder with the value of the `PARACHAIN_ID` constant:
-
-```rust,ignore
-pub const PARACHAIN_ID: u32 = 1000;
-```
-
-### Omni Node Prerequisites
-
-[Omni Node](https://paritytech.github.io/polkadot-sdk/master/polkadot_sdk_docs/reference_docs/omni_node/index.html) can
-be used to run the parachain template's runtime. `polkadot-omni-node` binary crate usage is described at a high-level
-[on crates.io](https://crates.io/crates/polkadot-omni-node).
-
-#### Install `polkadot-omni-node`
-
-Please see the installation section at [`crates.io/omni-node`](https://crates.io/crates/polkadot-omni-node).
-
-#### Build `parachain-template-runtime`
-
-```sh
-cargo build --profile production
-```
-
-#### Install `staging-chain-spec-builder`
-
-Please see the installation section at [`crates.io/staging-chain-spec-builder`](https://crates.io/crates/staging-chain-spec-builder).
-
-#### Use `chain-spec-builder` to generate the `chain_spec.json` file
-
-```sh
-chain-spec-builder create --relay-chain "rococo-local" --para-id {{PARACHAIN_ID}} --runtime \
-    target/release/wbuild/parachain-template-runtime/parachain_template_runtime.wasm named-preset development
-```
-
-**Note**: the `relay-chain` and `para-id` flags are mandatory information required by
-Omni Node, and for parachain template case the value for `para-id` must be set to `{{PARACHAIN_ID}}`, since this
-is also the value injected through [ParachainInfo](https://docs.rs/staging-parachain-info/0.17.0/staging_parachain_info/)
-pallet into the `parachain-template-runtime`'s storage. The `relay-chain` value is set in accordance
-with the relay chain ID where this instantiation of parachain-template will connect to.
-
-#### Run Omni Node
-
-Start Omni Node with the generated chain spec. We'll start it in development mode (without a relay chain config), producing
-and finalizing blocks based on manual seal, configured below to seal a block with each second.
+### Install Dependencies
 
 ```bash
-polkadot-omni-node --chain <path/to/chain_spec.json> --dev --dev-block-time 1000
+# Install Rust
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+
+# Add WASM target
+rustup target add wasm32-unknown-unknown
+
+# Install Zombienet
+npm install -g @zombienet/cli
 ```
 
-However, such a setup is not close to what would run in production, and for that we need to setup a local
-relay chain network that will help with the block finalization. In this guide we'll setup a local relay chain
-as well. We'll not do it manually, by starting one node at a time, but we'll use [zombienet](https://paritytech.github.io/zombienet/intro.html).
+## Project Structure
 
-Follow through the next section for more details on how to do it.
-
-### Zombienet setup with Omni Node
-
-Assuming we continue from the last step of the previous section, we have a chain spec and we need to setup a relay chain.
-We can install `zombienet` as described [here](https://paritytech.github.io/zombienet/install.html#installation), and
-`zombienet-omni-node.toml` contains the network specification we want to start.
-
-#### Relay chain prerequisites
-
-Download the `polkadot` (and the accompanying `polkadot-prepare-worker` and `polkadot-execute-worker`) binaries from
-[Polkadot SDK releases](https://github.com/paritytech/polkadot-sdk/releases). Then expose them on `PATH` like so:
-
-```sh
-export PATH="$PATH:<path/to/binaries>"
+```
+nonfungible-adapter-tutorial/
+├── runtime/
+│   └── src/
+│       ├── lib.rs                    # Runtime with pallet-nfts (index 51)
+│       ├── genesis_config_presets.rs # Presets for parachain-a and parachain-b
+│       └── configs/
+│           ├── mod.rs                # pallet-nfts configuration
+│           └── xcm_config.rs         # XCM + NftsMatcher configuration
+├── zombienet/
+│   └── network.toml                  # Zombienet config for two parachains
+├── scripts/
+│   ├── setup-collections.js          # Create NFT collections
+│   └── transfer-nft.js               # Cross-chain transfer demo
+└── README.md
 ```
 
-#### Update `zombienet-omni-node.toml` with a valid chain spec path
+## Quick Start
 
-To simplify the process of using the parachain-template with zombienet and Omni Node, we've added a pre-configured
-development chain spec (dev_chain_spec.json) to the parachain template. The zombienet-omni-node.toml file of this
-template points to it, but you can update it to an updated chain spec generated on your machine. To generate a
-chain spec refer to [staging-chain-spec-builder](https://crates.io/crates/staging-chain-spec-builder)
+### 1. Build the Runtime
 
-Then make the changes in the network specification like so:
-
-```toml
-# ...
-[[parachains]]
-id = "<PARACHAIN_ID>"
-chain_spec_path = "<TO BE UPDATED WITH A VALID PATH>"
-# ...
+```bash
+cargo build --release
 ```
 
-#### Start the network
+### 2. Spawn the Network
 
-```sh
-zombienet --provider native spawn zombienet-omni-node.toml
+```bash
+zombienet spawn zombienet/network.toml
 ```
 
-### Parachain Template Node
+This spawns:
+- Rococo local relay chain (Alice + Bob validators)
+- Parachain A (para_id: 1000) with Alice as collator
+- Parachain B (para_id: 1001) with Bob as collator
+- Bidirectional HRMP channels between parachains
 
-As mentioned in the `Template Structure` section, the `node` crate is optionally compiled and it is an alternative
-to `Omni Node`. Similarly, it requires setting up a relay chain, and we'll use `zombienet` once more.
+### 3. Run Demo Scripts
 
-#### Install the `parachain-template-node`
-
-```sh
-cargo install --path node
+```bash
+cd scripts
+npm install
+npm run setup   # Create NFT collections
+npm run transfer # Demo cross-chain transfer
 ```
 
-#### Setup and start the network
+## Key Concepts
 
-For setup, please consider the instructions for `zombienet` installation [here](https://paritytech.github.io/zombienet/install.html#installation)
-and [relay chain prerequisites](#relay-chain-prerequisites).
+### pallet-nfts Configuration
 
-We're left just with starting the network:
+The runtime includes `pallet-nfts` at pallet index 51:
 
-```sh
-zombienet --provider native spawn zombienet.toml
+```rust
+impl pallet_nfts::Config for Runtime {
+    type RuntimeEvent = RuntimeEvent;
+    type CollectionId = u32;
+    type ItemId = u32;
+    type Currency = Balances;
+    type ForceOrigin = EnsureRoot<AccountId>;
+    type CreateOrigin = AsEnsureOriginWithArg<EnsureSigned<AccountId>>;
+    type BlockNumberProvider = System;
+    // ... other config
+}
 ```
 
-### Connect with the Polkadot-JS Apps Front-End
+### NFT Asset Representation in XCM
 
-- 🌐 You can interact with your local node using the
-  hosted version of the Polkadot/Substrate Portal:
-  [relay chain](https://polkadot.js.org/apps/#/explorer?rpc=ws://localhost:9944)
-  and [parachain](https://polkadot.js.org/apps/#/explorer?rpc=ws://localhost:9988).
+NFTs are represented in XCM using:
 
-- 🪐 A hosted version is also
-  available on [IPFS](https://dotapps.io/).
-
-- 🧑‍🔧 You can also find the source code and instructions for hosting your own instance in the
-  [`polkadot-js/apps`](https://github.com/polkadot-js/apps) repository.
-
-### Takeaways
-
-Development parachains:
-
-- 🔗 Connect to relay chains, and we showcased how to connect to a local one.
-- 🧹 Do not persist the state.
-- 💰 Are preconfigured with a genesis state that includes several prefunded development accounts.
-- 🧑‍⚖️ Development accounts are used as validators, collators, and `sudo` accounts.
-
-## Runtime development
-
-We recommend using [`chopsticks`](https://github.com/AcalaNetwork/chopsticks) when the focus is more on the runtime
-development and `OmniNode` is enough as is.
-
-### Install chopsticks
-
-To use `chopsticks`, please install the latest version according to the installation [guide](https://github.com/AcalaNetwork/chopsticks?tab=readme-ov-file#install).
-
-### Build a raw chain spec
-
-Build the `parachain-template-runtime` as mentioned before in this guide and use `chain-spec-builder`
-again but this time by passing `--raw-storage` flag:
-
-```sh
-chain-spec-builder create --raw-storage --relay-chain "rococo-local" --para-id {{PARACHAIN_ID}} --runtime \
-    target/release/wbuild/parachain-template-runtime/parachain_template_runtime.wasm named-preset development
+```
+Asset {
+    id: Location {
+        parents: 0,
+        interior: X2(PalletInstance(51), GeneralIndex(collection_id))
+    },
+    fun: NonFungible(Index(item_id))
+}
 ```
 
-### Start `chopsticks` with the chain spec
+### NftsMatcher
 
-```sh
-npx @acala-network/chopsticks@latest --chain-spec <path/to/chain_spec.json>
+The `NftsMatcher` identifies NFT assets for the XCM executor:
+
+```rust
+pub struct NftsMatcher;
+impl MatchesNonFungibles<u32, u32> for NftsMatcher {
+    fn matches_nonfungibles(a: &Asset) -> Result<(u32, u32), Error> {
+        match (&a.id.0.unpack(), &a.fun) {
+            (
+                (0, [PalletInstance(51), GeneralIndex(collection)]),
+                Fungibility::NonFungible(AssetInstance::Index(item)),
+            ) => Ok((*collection as u32, *item as u32)),
+            _ => Err(Error::AssetNotHandled),
+        }
+    }
+}
 ```
 
-### Alternatives
+### NonFungibleAdapter Pattern
 
-`OmniNode` can be still used for runtime development if using the `--dev` flag, while `parachain-template-node` doesn't
-support it at this moment. It can still be used to test a runtime in a full setup where it is started alongside a
-relay chain network (see [Parachain Template node](#parachain-template-node) setup).
+The `NonFungibleAdapter` from `xcm-builder` handles NFT asset transactions:
 
-## Contributing
+```rust
+pub type NftsTransactor = NonFungiblesAdapter<
+    Nfts,               // The NFT pallet
+    NftsMatcher,        // Asset matcher
+    LocationToAccountId, // Location converter
+    AccountId,
+    NoChecking,         // Teleport checking
+    (),
+>;
+```
 
-- 🔄 This template is automatically updated after releases in the main [Polkadot SDK monorepo](https://github.com/paritytech/polkadot-sdk).
+**Important Note:** The current `NonFungiblesAdapter` requires pallets to implement the `nonfungibles::Mutate` and `nonfungibles::Transfer` traits. However, `pallet-nfts` implements the newer `nonfungibles_v2` traits. For production use, you need to:
 
-- ➡️ Any pull requests should be directed to this [source](https://github.com/paritytech/polkadot-sdk/tree/master/templates/parachain).
+1. Create a wrapper implementing the old traits using pallet-nfts
+2. Use a custom `TransactAsset` implementation
+3. Wait for xcm-builder to support nonfungibles_v2
 
-- 😇 Please refer to the monorepo's
-  [contribution guidelines](https://github.com/paritytech/polkadot-sdk/blob/master/docs/contributor/CONTRIBUTING.md) and
-  [Code of Conduct](https://github.com/paritytech/polkadot-sdk/blob/master/docs/contributor/CODE_OF_CONDUCT.md).
+### Reserve Asset Configuration
 
-## Getting Help
+To accept NFTs from sibling parachains as reserves:
 
-- 🧑‍🏫 To learn about Polkadot in general, [docs.Polkadot.com](https://docs.polkadot.com/) website is a good starting point.
+```rust
+pub struct NftsFromSiblings;
+impl ContainsPair<Asset, Location> for NftsFromSiblings {
+    fn contains(asset: &Asset, origin: &Location) -> bool {
+        matches!(
+            (origin.unpack(), &asset.fun),
+            ((1, [Parachain(_)]), Fungibility::NonFungible(_))
+        )
+    }
+}
 
-- 🧑‍🔧 For technical introduction, [here](https://github.com/paritytech/polkadot-sdk#-documentation) are
-  the Polkadot SDK documentation resources.
+pub type IsReserveAsset = (NativeAsset, NftsFromSiblings);
+```
 
-- 👥 Additionally, there are [GitHub issues](https://github.com/paritytech/polkadot-sdk/issues) and
-  [Substrate StackExchange](https://substrate.stackexchange.com/).
-- 👥You can also reach out on the [Official Polkdot discord server](https://polkadot-discord.w3f.tools/)
-- 🧑Reach out on [Telegram](https://t.me/substratedevs) for more questions and discussions
+## Genesis Config Presets
+
+Two presets are available for the two parachains:
+
+| Preset | Para ID | Collator | Sudo |
+|--------|---------|----------|------|
+| `parachain-a` | 1000 | Alice | Alice |
+| `parachain-b` | 1001 | Bob | Bob |
+
+Generate chain specs:
+
+```bash
+# Parachain A
+polkadot-omni-node build-spec --chain ./target/release/wbuild/parachain-template-runtime/parachain_template_runtime.wasm \
+    --genesis-preset parachain-a > chain-spec-a.json
+
+# Parachain B
+polkadot-omni-node build-spec --chain ./target/release/wbuild/parachain-template-runtime/parachain_template_runtime.wasm \
+    --genesis-preset parachain-b > chain-spec-b.json
+```
+
+## Cross-Chain NFT Transfer Flow
+
+### Reserve Transfer (Recommended)
+
+1. **Source Chain (A):** NFT is locked/reserved in the sovereign account
+2. **XCM Message:** Sent via HRMP to destination chain
+3. **Destination Chain (B):** Mints derivative NFT to recipient
+
+```
+Parachain A                    Parachain B
+    │                              │
+    │ 1. Lock NFT                  │
+    │    (to sovereign account)   │
+    │                              │
+    │──── 2. XCM Reserve Transfer ─────│
+    │                              │
+    │                    3. Mint derivative
+    │                       to recipient
+```
+
+### XCM Message Structure (using PAPI)
+
+```javascript
+import { createClient } from "polkadot-api";
+
+// Build NFT asset for XCM
+const assets = {
+    type: "V4",
+    value: [{
+        id: {
+            parents: 0,
+            interior: {
+                type: "X2",
+                value: [
+                    { type: "PalletInstance", value: 51 },
+                    { type: "GeneralIndex", value: BigInt(collectionId) },
+                ],
+            },
+        },
+        fun: {
+            type: "NonFungible",
+            value: { type: "Index", value: BigInt(itemId) },
+        },
+    }],
+};
+
+// Reserve transfer
+const tx = api.tx.PolkadotXcm.limited_reserve_transfer_assets({
+    dest,        // V4 Location to sibling parachain
+    beneficiary, // V4 Location for recipient account
+    assets,      // NFT asset representation
+    fee_asset_item: 0,
+    weight_limit: { type: "Unlimited" },
+});
+```
+
+## Extending This Tutorial
+
+### Adding Full NFT XCM Support
+
+To enable actual NFT transfers, implement a trait bridge:
+
+```rust
+use frame_support::traits::tokens::nonfungibles;
+
+/// Wrapper to bridge nonfungibles_v2 to nonfungibles traits
+pub struct NftsBridge<T>(PhantomData<T>);
+
+impl<T: pallet_nfts::Config> nonfungibles::Transfer<T::AccountId> for NftsBridge<T> {
+    fn transfer(
+        collection: &Self::CollectionId,
+        item: &Self::ItemId,
+        destination: &T::AccountId,
+    ) -> DispatchResult {
+        pallet_nfts::Pallet::<T>::do_transfer(
+            *collection,
+            *item,
+            destination.clone(),
+            |_, _| Ok(())
+        )
+    }
+}
+```
+
+### Foreign Asset Registry
+
+For production, implement a foreign asset registry to track NFTs from other chains:
+
+```rust
+// Map foreign locations to local collection IDs
+type ForeignNfts = StorageMap<_, Blake2_128Concat, Location, CollectionId>;
+```
+
+## Troubleshooting
+
+### Build Errors
+
+```bash
+# Clean and rebuild
+cargo clean
+cargo build --release
+```
+
+### Zombienet Issues
+
+```bash
+# Check binaries are in PATH
+which polkadot
+which polkadot-omni-node
+
+# Increase timeout if needed
+# Edit zombienet/network.toml: timeout = 2000
+```
+
+### XCM Transfer Fails
+
+1. Verify HRMP channels are open between parachains
+2. Check that both chains have sufficient balance for fees
+3. Verify the asset location format matches the NftsMatcher
+
+## Resources
+
+- [Polkadot SDK Documentation](https://paritytech.github.io/polkadot-sdk/master/polkadot_sdk_docs/index.html)
+- [pallet-nfts](https://github.com/paritytech/polkadot-sdk/tree/master/substrate/frame/nfts)
+- [XCM Configuration](https://docs.polkadot.com/develop/interoperability/xcm-config/)
+- [NonFungiblesAdapter Source](https://github.com/paritytech/polkadot-sdk/blob/master/polkadot/xcm/xcm-builder/src/nonfungibles_adapter.rs)
+- [Polkadot API (PAPI)](https://papi.how/) - Modern TypeScript API for Polkadot
+
+## License
+
+MIT-0
