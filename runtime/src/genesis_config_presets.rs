@@ -16,9 +16,11 @@ use sp_keyring::Sr25519Keyring;
 
 /// The default XCM version to set in genesis config.
 const SAFE_XCM_VERSION: u32 = xcm::prelude::XCM_VERSION;
-/// Parachain id used for genesis config presets of parachain template.
+/// Parachain id for Parachain A (default).
 #[docify::export_content]
 pub const PARACHAIN_ID: u32 = 1000;
+/// Parachain id for Parachain B.
+pub const PARACHAIN_B_ID: u32 = 1001;
 
 /// Generate the session keys from individual elements.
 ///
@@ -89,11 +91,42 @@ fn development_config_genesis() -> Value {
 	)
 }
 
+/// Genesis config for Parachain A (para_id: 1000)
+fn parachain_a_genesis() -> Value {
+	testnet_genesis(
+		vec![
+			(Sr25519Keyring::Alice.to_account_id(), Sr25519Keyring::Alice.public().into()),
+		],
+		Sr25519Keyring::well_known().map(|k| k.to_account_id()).collect(),
+		Sr25519Keyring::Alice.to_account_id(),
+		PARACHAIN_ID.into(),
+	)
+}
+
+/// Genesis config for Parachain B (para_id: 1001)
+fn parachain_b_genesis() -> Value {
+	testnet_genesis(
+		vec![
+			(Sr25519Keyring::Bob.to_account_id(), Sr25519Keyring::Bob.public().into()),
+		],
+		Sr25519Keyring::well_known().map(|k| k.to_account_id()).collect(),
+		Sr25519Keyring::Bob.to_account_id(),
+		PARACHAIN_B_ID.into(),
+	)
+}
+
+/// Preset name for Parachain A.
+pub const PARACHAIN_A_PRESET: &str = "parachain-a";
+/// Preset name for Parachain B.
+pub const PARACHAIN_B_PRESET: &str = "parachain-b";
+
 /// Provides the JSON representation of predefined genesis config for given `id`.
 pub fn get_preset(id: &PresetId) -> Option<vec::Vec<u8>> {
 	let patch = match id.as_ref() {
 		sp_genesis_builder::LOCAL_TESTNET_RUNTIME_PRESET => local_testnet_genesis(),
 		sp_genesis_builder::DEV_RUNTIME_PRESET => development_config_genesis(),
+		PARACHAIN_A_PRESET => parachain_a_genesis(),
+		PARACHAIN_B_PRESET => parachain_b_genesis(),
 		_ => return None,
 	};
 	Some(
@@ -108,5 +141,7 @@ pub fn preset_names() -> Vec<PresetId> {
 	vec![
 		PresetId::from(sp_genesis_builder::DEV_RUNTIME_PRESET),
 		PresetId::from(sp_genesis_builder::LOCAL_TESTNET_RUNTIME_PRESET),
+		PresetId::from(PARACHAIN_A_PRESET),
+		PresetId::from(PARACHAIN_B_PRESET),
 	]
 }
