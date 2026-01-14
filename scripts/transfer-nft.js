@@ -4,19 +4,20 @@
  * This script demonstrates how to transfer an NFT from Parachain A to Parachain B
  * using XCM reserve transfers with the NonFungibleAdapter.
  *
- * Uses Polkadot API (PAPI) - the modern Polkadot API
+ * Uses Polkadot API (PAPI) with typed descriptors
  */
 
 import { createClient } from "polkadot-api";
-import { getWsProvider } from "polkadot-api/ws-provider/web";
+import { getWsProvider } from "polkadot-api/ws-provider/node";
+import { parachainA, parachainB } from "@polkadot-api/descriptors";
 import { sr25519CreateDerive, withNetworkAccount } from "@polkadot-labs/hdkd";
 import { DEV_PHRASE, entropyToMiniSecret, mnemonicToEntropy } from "@polkadot-labs/hdkd-helpers";
 import { getPolkadotSigner } from "polkadot-api/signer";
+import { Binary } from "polkadot-api";
 
 // Parachain endpoints (adjust ports based on your Zombienet config)
-// Default ports - update these after running Zombienet
-const PARACHAIN_A_WS = process.env.PARA_A_WS || "ws://127.0.0.1:52205";
-const PARACHAIN_B_WS = process.env.PARA_B_WS || "ws://127.0.0.1:52209";
+const PARACHAIN_A_WS = process.env.PARA_A_WS || "ws://127.0.0.1:61070";
+const PARACHAIN_B_WS = process.env.PARA_B_WS || "ws://127.0.0.1:61074";
 
 // Parachain IDs
 const PARACHAIN_A_ID = 1000;
@@ -27,18 +28,6 @@ const NFTS_PALLET_INDEX = 51;
 
 // SS58 prefix
 const SS58_PREFIX = 42;
-
-/**
- * Convert a public key to SS58 address
- */
-function toSs58Address(publicKey) {
-    const dummyKeyPair = {
-        publicKey: publicKey instanceof Uint8Array ? publicKey : new Uint8Array(publicKey),
-        sign: () => new Uint8Array(64),
-    };
-    const account = withNetworkAccount(dummyKeyPair, SS58_PREFIX);
-    return account.ss58Address;
-}
 
 /**
  * Create a signer from a derivation path
@@ -64,40 +53,32 @@ function createSigner(derivationPath) {
 }
 
 /**
- * Connect to a parachain
+ * Connect to a parachain with typed API
  */
-async function connectToParachain(endpoint, name) {
+async function connectToParachain(endpoint, name, descriptor) {
     console.log(`Connecting to ${name} at ${endpoint}...`);
 
     const provider = getWsProvider(endpoint);
     const client = createClient(provider);
+    const api = client.getTypedApi(descriptor);
 
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    await new Promise((resolve) => setTimeout(resolve, 2000));
 
     console.log(`Connected to ${name}`);
-    return client;
+    return { client, api };
 }
 
 /**
  * Build the XCM destination for sending to a sibling parachain
  */
-function buildDestination(parachainId, recipientPublicKey) {
+function buildDestination(parachainId) {
     return {
         type: "V4",
         value: {
             parents: 1,
             interior: {
-                type: "X2",
-                value: [
-                    { type: "Parachain", value: parachainId },
-                    {
-                        type: "AccountId32",
-                        value: {
-                            network: undefined,
-                            id: recipientPublicKey,
-                        },
-                    },
-                ],
+                type: "X1",
+                value: [{ type: "Parachain", value: parachainId }],
             },
         },
     };
@@ -118,7 +99,7 @@ function buildBeneficiary(recipientPublicKey) {
                         type: "AccountId32",
                         value: {
                             network: undefined,
-                            id: recipientPublicKey,
+                            id: Binary.fromBytes(recipientPublicKey),
                         },
                     },
                 ],
@@ -164,16 +145,13 @@ function buildNftAsset(collectionId, itemId) {
 /**
  * Transfer an NFT from this chain to a sibling parachain using reserve transfer
  */
-async function transferNftToSibling(client, signer, collectionId, itemId, destParachainId, recipientPublicKey) {
+async function transferNftToSibling(api, signer, collectionId, itemId, destParachainId, recipientPublicKey) {
     console.log(`\nInitiating NFT transfer...`);
     console.log(`  Collection: ${collectionId}`);
     console.log(`  Item: ${itemId}`);
     console.log(`  Destination: Parachain ${destParachainId}`);
-    console.log(`  Recipient: ${toSs58Address(recipientPublicKey)}`);
 
-    const api = client.getUnsafeApi();
-
-    const dest = buildDestination(destParachainId, recipientPublicKey);
+    const dest = buildDestination(destParachainId);
     const beneficiary = buildBeneficiary(recipientPublicKey);
     const assets = buildNftAsset(collectionId, itemId);
 
@@ -211,13 +189,11 @@ async function transferNftToSibling(client, signer, collectionId, itemId, destPa
 /**
  * Query NFT owner
  */
-async function queryNftOwner(client, collectionId, itemId) {
-    const api = client.getUnsafeApi();
-
+async function queryNftOwner(api, collectionId, itemId) {
     try {
         const item = await api.query.Nfts.Item.getValue(collectionId, itemId);
         if (item) {
-            return toSs58Address(item.owner);
+            return item.owner;
         }
     } catch (e) {
         // Item doesn't exist
@@ -229,11 +205,8 @@ async function queryNftOwner(client, collectionId, itemId) {
 /**
  * Query collection count
  */
-async function queryCollectionCount(client) {
-    const api = client.getUnsafeApi();
-
+async function queryCollectionCount(api) {
     try {
-        // Get all collections
         const collections = await api.query.Nfts.Collection.getEntries();
         return collections.length;
     } catch (e) {
@@ -246,7 +219,7 @@ async function main() {
     const bob = createSigner("//Bob");
 
     console.log("=".repeat(60));
-    console.log("Cross-Chain NFT Transfer Demo (using PAPI)");
+    console.log("Cross-Chain NFT Transfer Demo (using PAPI with typed API)");
     console.log("Using NonFungibleAdapter with Reserve Transfers");
     console.log("=".repeat(60));
     console.log(`\nAlice (sender): ${alice.address}`);
@@ -255,22 +228,26 @@ async function main() {
     let clientA, clientB;
 
     try {
-        // Connect to both parachains
-        clientA = await connectToParachain(PARACHAIN_A_WS, "Parachain A (Source)");
-        clientB = await connectToParachain(PARACHAIN_B_WS, "Parachain B (Destination)");
+        // Connect to both parachains with typed APIs
+        const connA = await connectToParachain(PARACHAIN_A_WS, "Parachain A (Source)", parachainA);
+        const connB = await connectToParachain(PARACHAIN_B_WS, "Parachain B (Destination)", parachainB);
+        clientA = connA.client;
+        clientB = connB.client;
+        const apiA = connA.api;
+        const apiB = connB.api;
 
         // Parameters for the transfer
         const collectionId = 0; // First collection created
         const itemId = 1; // First NFT
 
         console.log("\n--- Before Transfer ---");
-        const ownerBefore = await queryNftOwner(clientA, collectionId, itemId);
+        const ownerBefore = await queryNftOwner(apiA, collectionId, itemId);
         console.log(`NFT #${itemId} owner on Parachain A: ${ownerBefore || "Not found"}`);
 
         // Perform the cross-chain transfer
         console.log("\n--- Executing Cross-Chain Transfer ---");
         await transferNftToSibling(
-            clientA,
+            apiA,
             alice,
             collectionId,
             itemId,
@@ -285,7 +262,7 @@ async function main() {
         console.log("\n--- After Transfer ---");
 
         // Check NFT status on source chain
-        const ownerAfterA = await queryNftOwner(clientA, collectionId, itemId);
+        const ownerAfterA = await queryNftOwner(apiA, collectionId, itemId);
         if (ownerAfterA) {
             console.log(`NFT #${itemId} on Parachain A: Still owned by ${ownerAfterA}`);
             console.log(`  (NFT is held in reserve for the cross-chain transfer)`);
@@ -295,7 +272,7 @@ async function main() {
 
         // Check for collections on destination chain
         console.log(`\nChecking Parachain B for received NFT...`);
-        const collectionCount = await queryCollectionCount(clientB);
+        const collectionCount = await queryCollectionCount(apiB);
         console.log(`Total collections on Parachain B: ${collectionCount}`);
 
         console.log("\n" + "=".repeat(60));

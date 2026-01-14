@@ -4,35 +4,22 @@
  * This script creates NFT collections on Parachain A and Parachain B,
  * and mints sample NFTs for testing cross-chain transfers.
  *
- * Uses Polkadot API (PAPI) - the modern Polkadot API
+ * Uses Polkadot API (PAPI) with typed descriptors
  */
 
 import { createClient } from "polkadot-api";
-import { getWsProvider } from "polkadot-api/ws-provider/web";
+import { getWsProvider } from "polkadot-api/ws-provider/node";
+import { parachainA, parachainB } from "@polkadot-api/descriptors";
 import { sr25519CreateDerive, withNetworkAccount } from "@polkadot-labs/hdkd";
 import { DEV_PHRASE, entropyToMiniSecret, mnemonicToEntropy } from "@polkadot-labs/hdkd-helpers";
 import { getPolkadotSigner } from "polkadot-api/signer";
 
 // Parachain endpoints (adjust ports based on your Zombienet config)
-// Default ports - update these after running Zombienet
-const PARACHAIN_A_WS = process.env.PARA_A_WS || "ws://127.0.0.1:52205";
-const PARACHAIN_B_WS = process.env.PARA_B_WS || "ws://127.0.0.1:52209";
+const PARACHAIN_A_WS = process.env.PARA_A_WS || "ws://127.0.0.1:61070";
+const PARACHAIN_B_WS = process.env.PARA_B_WS || "ws://127.0.0.1:61074";
 
 // SS58 prefix for the parachain (42 is generic substrate)
 const SS58_PREFIX = 42;
-
-/**
- * Convert a public key to SS58 address
- */
-function toSs58Address(publicKey) {
-    // Create a dummy keypair just for the address conversion
-    const dummyKeyPair = {
-        publicKey: publicKey instanceof Uint8Array ? publicKey : new Uint8Array(publicKey),
-        sign: () => new Uint8Array(64),
-    };
-    const account = withNetworkAccount(dummyKeyPair, SS58_PREFIX);
-    return account.ss58Address;
-}
 
 /**
  * Create a signer from a derivation path (e.g., "//Alice")
@@ -59,34 +46,33 @@ function createSigner(derivationPath) {
 }
 
 /**
- * Connect to a parachain and get the typed API
+ * Connect to a parachain with typed API
  */
-async function connectToParachain(endpoint, name) {
+async function connectToParachain(endpoint, name, descriptor) {
     console.log(`Connecting to ${name} at ${endpoint}...`);
 
     const provider = getWsProvider(endpoint);
     const client = createClient(provider);
+    const api = client.getTypedApi(descriptor);
 
     // Wait for connection
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    await new Promise((resolve) => setTimeout(resolve, 2000));
 
     console.log(`Connected to ${name}`);
-    return client;
+    return { client, api };
 }
 
 /**
  * Create an NFT collection
  */
-async function createCollection(client, signer, admin) {
+async function createCollection(api, signer, admin) {
     console.log(`Creating NFT collection...`);
-
-    const api = client.getUnsafeApi();
 
     // Create collection with admin as the owner
     const tx = api.tx.Nfts.create({
         admin: { type: "Id", value: admin },
         config: {
-            settings: 0n, // All settings disabled by default
+            settings: 0n,
             max_supply: undefined,
             mint_settings: {
                 mint_type: { type: "Issuer" },
@@ -118,16 +104,14 @@ async function createCollection(client, signer, admin) {
 /**
  * Mint an NFT
  */
-async function mintNft(client, signer, collectionId, itemId, mintTo) {
+async function mintNft(api, signer, collectionId, itemId, mintTo) {
     console.log(`Minting NFT #${itemId} in collection #${collectionId}...`);
-
-    const api = client.getUnsafeApi();
 
     const tx = api.tx.Nfts.mint({
         collection: collectionId,
         item: itemId,
         mint_to: { type: "Id", value: mintTo },
-        witness_data: null,
+        witness_data: undefined,
     });
 
     const result = await tx.signAndSubmit(signer.signer);
@@ -148,10 +132,8 @@ async function mintNft(client, signer, collectionId, itemId, mintTo) {
 /**
  * Set metadata for an NFT
  */
-async function setMetadata(client, signer, collectionId, itemId, metadata) {
+async function setMetadata(api, signer, collectionId, itemId, metadata) {
     console.log(`Setting metadata for NFT #${itemId}...`);
-
-    const api = client.getUnsafeApi();
 
     const tx = api.tx.Nfts.set_metadata({
         collection: collectionId,
@@ -168,13 +150,12 @@ async function setMetadata(client, signer, collectionId, itemId, metadata) {
 /**
  * Query NFT owner
  */
-async function queryNftOwner(client, collectionId, itemId) {
-    const api = client.getUnsafeApi();
-
+async function queryNftOwner(api, collectionId, itemId) {
     try {
         const item = await api.query.Nfts.Item.getValue(collectionId, itemId);
         if (item) {
-            return toSs58Address(item.owner);
+            // The owner is already an SS58 address when using typed API
+            return item.owner;
         }
     } catch (e) {
         // Item doesn't exist
@@ -189,7 +170,7 @@ async function main() {
     const bob = createSigner("//Bob");
 
     console.log("=".repeat(60));
-    console.log("NFT Collection Setup Script (using PAPI)");
+    console.log("NFT Collection Setup Script (using PAPI with typed API)");
     console.log("=".repeat(60));
     console.log(`Alice address: ${alice.address}`);
     console.log(`Bob address: ${bob.address}`);
@@ -198,47 +179,51 @@ async function main() {
     let clientA, clientB;
 
     try {
-        // Connect to both parachains
-        clientA = await connectToParachain(PARACHAIN_A_WS, "Parachain A");
-        clientB = await connectToParachain(PARACHAIN_B_WS, "Parachain B");
+        // Connect to both parachains with typed APIs
+        const connA = await connectToParachain(PARACHAIN_A_WS, "Parachain A", parachainA);
+        const connB = await connectToParachain(PARACHAIN_B_WS, "Parachain B", parachainB);
+        clientA = connA.client;
+        clientB = connB.client;
+        const apiA = connA.api;
+        const apiB = connB.api;
 
         console.log("\n--- Setting up Parachain A ---");
 
         // Create collection on Parachain A
-        const collectionIdA = await createCollection(clientA, alice, alice.address);
+        const collectionIdA = await createCollection(apiA, alice, alice.address);
 
         if (collectionIdA !== null) {
             // Mint NFTs on Parachain A
-            await mintNft(clientA, alice, collectionIdA, 1, alice.address);
-            await mintNft(clientA, alice, collectionIdA, 2, alice.address);
-            await mintNft(clientA, alice, collectionIdA, 3, bob.address);
+            await mintNft(apiA, alice, collectionIdA, 1, alice.address);
+            await mintNft(apiA, alice, collectionIdA, 2, alice.address);
+            await mintNft(apiA, alice, collectionIdA, 3, bob.address);
 
             // Set metadata
-            await setMetadata(clientA, alice, collectionIdA, 1, "NFT #1 - Ready for XCM transfer");
-            await setMetadata(clientA, alice, collectionIdA, 2, "NFT #2 - Cross-chain demo");
+            await setMetadata(apiA, alice, collectionIdA, 1, "NFT #1 - Ready for XCM transfer");
+            await setMetadata(apiA, alice, collectionIdA, 2, "NFT #2 - Cross-chain demo");
         }
 
         console.log("\n--- Setting up Parachain B ---");
 
         // Create collection on Parachain B (for receiving foreign NFTs)
-        const collectionIdB = await createCollection(clientB, bob, bob.address);
+        const collectionIdB = await createCollection(apiB, bob, bob.address);
 
         if (collectionIdB !== null) {
             // Mint a local NFT on Parachain B
-            await mintNft(clientB, bob, collectionIdB, 1, bob.address);
-            await setMetadata(clientB, bob, collectionIdB, 1, "Local NFT on Parachain B");
+            await mintNft(apiB, bob, collectionIdB, 1, bob.address);
+            await setMetadata(apiB, bob, collectionIdB, 1, "Local NFT on Parachain B");
         }
 
         console.log("\n--- Summary ---");
         console.log(`Parachain A Collection ID: ${collectionIdA}`);
         if (collectionIdA !== null) {
-            console.log(`  - NFT #1 owner: ${await queryNftOwner(clientA, collectionIdA, 1)}`);
-            console.log(`  - NFT #2 owner: ${await queryNftOwner(clientA, collectionIdA, 2)}`);
-            console.log(`  - NFT #3 owner: ${await queryNftOwner(clientA, collectionIdA, 3)}`);
+            console.log(`  - NFT #1 owner: ${await queryNftOwner(apiA, collectionIdA, 1)}`);
+            console.log(`  - NFT #2 owner: ${await queryNftOwner(apiA, collectionIdA, 2)}`);
+            console.log(`  - NFT #3 owner: ${await queryNftOwner(apiA, collectionIdA, 3)}`);
         }
         console.log(`Parachain B Collection ID: ${collectionIdB}`);
         if (collectionIdB !== null) {
-            console.log(`  - NFT #1 owner: ${await queryNftOwner(clientB, collectionIdB, 1)}`);
+            console.log(`  - NFT #1 owner: ${await queryNftOwner(apiB, collectionIdB, 1)}`);
         }
 
         console.log("\n" + "=".repeat(60));

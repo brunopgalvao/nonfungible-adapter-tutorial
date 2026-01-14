@@ -1,0 +1,18 @@
+{
+  "version": 0,
+  "descriptorPath": ".papi/descriptors",
+  "entries": {
+    "parachainA": {
+      "wsUrl": "ws://127.0.0.1:58513",
+      "metadata": ".papi/metadata/parachainA.scale",
+      "genesis": "0x4545454545454545454545454545454545454545454545454545454545454545",
+      "codeHash": "0xf065143296be3105a14ab1eba6b0a9a2cc49f4218a4b8dba6be5dc8c4d549e9e"
+    },
+    "parachainB": {
+      "wsUrl": "ws://127.0.0.1:58517",
+      "metadata": ".papi/metadata/parachainB.scale",
+      "genesis": "0x4545454545454545454545454545454545454545454545454545454545454545",
+      "codeHash": "0xf065143296be3105a14ab1eba6b0a9a2cc49f4218a4b8dba6be5dc8c4d549e9e"
+    }
+  }
+}

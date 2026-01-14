@@ -419,13 +419,32 @@ If you see "cannot execute binary file", ensure you downloaded the correct binar
 - Apple Silicon (M1/M2/M3): Use `aarch64-apple-darwin` binaries
 - Intel Mac: Use `x86_64-apple-darwin` binaries
 
-### PAPI Script Memory Issues
+### PAPI Script Issues
 
-The demo scripts use `getUnsafeApi()` which dynamically generates types from metadata. This can cause memory issues with large runtimes. Solutions:
+The demo scripts use PAPI (Polkadot API) with typed descriptors. Common issues:
 
-1. **Use Polkadot.js Apps** - Recommended for testing
-2. **Generate typed descriptors** - Run `papi codegen` against your chain
-3. **Increase Node memory** - `NODE_OPTIONS="--max-old-space-size=8192" npm run setup`
+1. **Memory Issues** - Increase Node memory: `NODE_OPTIONS="--max-old-space-size=8192" npm run setup`
+2. **WebSocket Disconnections** - PAPI's reconnection logic may cause issues; use Polkadot.js Apps for reliable testing
+3. **Regenerate Descriptors** - If ports change, regenerate descriptors:
+   ```bash
+   cd scripts
+   npx papi remove parachainA
+   npx papi remove parachainB
+   npx papi add parachainA -w ws://127.0.0.1:<PORT_A>
+   npx papi add parachainB -w ws://127.0.0.1:<PORT_B>
+   ```
+
+### Worker Version Mismatch
+
+If you see "Version of worker binary (X.Y.Z) is different from node version (A.B.C)":
+
+1. **For testing only**, add to zombienet config:
+   ```toml
+   [relaychain]
+   default_args = ["--disable-worker-version-check"]
+   ```
+
+2. **For production**, ensure `polkadot`, `polkadot-prepare-worker`, and `polkadot-execute-worker` are all from the same release
 
 ### XCM Transfer Fails
 

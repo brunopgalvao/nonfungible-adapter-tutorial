@@ -4,6 +4,7 @@ timeout = 1000
 [relaychain]
 default_command = "polkadot"
 chain = "rococo-local"
+default_args = ["--disable-worker-version-check"]
 
 [[relaychain.nodes]]
 name = "alice"

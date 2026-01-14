@@ -8,8 +8,9 @@
     "transfer": "node transfer-nft.js"
   },
   "dependencies": {
-    "polkadot-api": "^1.9.0",
+    "@polkadot-api/descriptors": "file:.papi/descriptors",
     "@polkadot-labs/hdkd": "^0.0.26",
-    "@polkadot-labs/hdkd-helpers": "^0.0.27"
+    "@polkadot-labs/hdkd-helpers": "^0.0.27",
+    "polkadot-api": "^1.9.0"
   }
 }
