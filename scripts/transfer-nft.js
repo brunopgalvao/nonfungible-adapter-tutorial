@@ -9,14 +9,14 @@
 
 import { createClient } from "polkadot-api";
 import { getWsProvider } from "polkadot-api/ws-provider/web";
-import { sr25519CreateDerive } from "@polkadot-api/sr25519";
-import { DEV_PHRASE, entropyToMiniSecret, mnemonicToEntropy } from "@polkadot-api/sr25519";
-import { ss58Encode, ss58Decode } from "@polkadot-api/ss58";
-import { toHex, fromHex } from "polkadot-api/utils";
+import { sr25519CreateDerive, withNetworkAccount } from "@polkadot-labs/hdkd";
+import { DEV_PHRASE, entropyToMiniSecret, mnemonicToEntropy } from "@polkadot-labs/hdkd-helpers";
+import { getPolkadotSigner } from "polkadot-api/signer";
 
-// Parachain endpoints
-const PARACHAIN_A_WS = "ws://127.0.0.1:9944";
-const PARACHAIN_B_WS = "ws://127.0.0.1:9945";
+// Parachain endpoints (adjust ports based on your Zombienet config)
+// Default ports - update these after running Zombienet
+const PARACHAIN_A_WS = process.env.PARA_A_WS || "ws://127.0.0.1:52205";
+const PARACHAIN_B_WS = process.env.PARA_B_WS || "ws://127.0.0.1:52209";
 
 // Parachain IDs
 const PARACHAIN_A_ID = 1000;
@@ -29,6 +29,18 @@ const NFTS_PALLET_INDEX = 51;
 const SS58_PREFIX = 42;
 
 /**
+ * Convert a public key to SS58 address
+ */
+function toSs58Address(publicKey) {
+    const dummyKeyPair = {
+        publicKey: publicKey instanceof Uint8Array ? publicKey : new Uint8Array(publicKey),
+        sign: () => new Uint8Array(64),
+    };
+    const account = withNetworkAccount(dummyKeyPair, SS58_PREFIX);
+    return account.ss58Address;
+}
+
+/**
  * Create a signer from a derivation path
  */
 function createSigner(derivationPath) {
@@ -36,11 +48,18 @@ function createSigner(derivationPath) {
     const miniSecret = entropyToMiniSecret(entropy);
     const derive = sr25519CreateDerive(miniSecret);
     const keyPair = derive(derivationPath);
+    const account = withNetworkAccount(keyPair, SS58_PREFIX);
+
+    const signer = getPolkadotSigner(
+        account.publicKey,
+        "Sr25519",
+        (input) => keyPair.sign(input)
+    );
 
     return {
-        publicKey: keyPair.publicKey,
-        address: ss58Encode(keyPair.publicKey, SS58_PREFIX),
-        sign: (data) => keyPair.sign(data),
+        publicKey: account.publicKey,
+        address: account.ss58Address,
+        signer,
     };
 }
 
@@ -150,7 +169,7 @@ async function transferNftToSibling(client, signer, collectionId, itemId, destPa
     console.log(`  Collection: ${collectionId}`);
     console.log(`  Item: ${itemId}`);
     console.log(`  Destination: Parachain ${destParachainId}`);
-    console.log(`  Recipient: ${ss58Encode(recipientPublicKey, SS58_PREFIX)}`);
+    console.log(`  Recipient: ${toSs58Address(recipientPublicKey)}`);
 
     const api = client.getUnsafeApi();
 
@@ -169,7 +188,7 @@ async function transferNftToSibling(client, signer, collectionId, itemId, destPa
         weight_limit: { type: "Unlimited" },
     });
 
-    const result = await tx.signAndSubmit(signer);
+    const result = await tx.signAndSubmit(signer.signer);
 
     console.log(`\nTransaction included in block: ${result.block.hash}`);
 
@@ -198,7 +217,7 @@ async function queryNftOwner(client, collectionId, itemId) {
     try {
         const item = await api.query.Nfts.Item.getValue(collectionId, itemId);
         if (item) {
-            return ss58Encode(item.owner, SS58_PREFIX);
+            return toSs58Address(item.owner);
         }
     } catch (e) {
         // Item doesn't exist

@@ -17,23 +17,21 @@ validator = true
 [[parachains]]
 id = 1000
 default_command = "polkadot-omni-node"
-chain_spec_command = "polkadot-omni-node build-spec --chain {{chainName}} --genesis-preset parachain-a --disable-default-bootnode"
+chain_spec_path = "chain-specs/parachain-a-raw.json"
 cumulus_based = true
 
 [[parachains.collators]]
 name = "collator-a"
-args = ["--wasmtime-precompiled=wasm_cache"]
 
 # Parachain B (para_id: 1001)
 [[parachains]]
 id = 1001
 default_command = "polkadot-omni-node"
-chain_spec_command = "polkadot-omni-node build-spec --chain {{chainName}} --genesis-preset parachain-b --disable-default-bootnode"
+chain_spec_path = "chain-specs/parachain-b-raw.json"
 cumulus_based = true
 
 [[parachains.collators]]
 name = "collator-b"
-args = ["--wasmtime-precompiled=wasm_cache"]
 
 # Bidirectional HRMP channels for XCM communication
 [[hrmp_channels]]

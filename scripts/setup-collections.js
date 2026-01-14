@@ -9,16 +9,30 @@
 
 import { createClient } from "polkadot-api";
 import { getWsProvider } from "polkadot-api/ws-provider/web";
-import { sr25519CreateDerive } from "@polkadot-api/sr25519";
-import { DEV_PHRASE, entropyToMiniSecret, mnemonicToEntropy } from "@polkadot-api/sr25519";
-import { ss58Encode } from "@polkadot-api/ss58";
+import { sr25519CreateDerive, withNetworkAccount } from "@polkadot-labs/hdkd";
+import { DEV_PHRASE, entropyToMiniSecret, mnemonicToEntropy } from "@polkadot-labs/hdkd-helpers";
+import { getPolkadotSigner } from "polkadot-api/signer";
 
 // Parachain endpoints (adjust ports based on your Zombienet config)
-const PARACHAIN_A_WS = "ws://127.0.0.1:9944";
-const PARACHAIN_B_WS = "ws://127.0.0.1:9945";
+// Default ports - update these after running Zombienet
+const PARACHAIN_A_WS = process.env.PARA_A_WS || "ws://127.0.0.1:52205";
+const PARACHAIN_B_WS = process.env.PARA_B_WS || "ws://127.0.0.1:52209";
 
 // SS58 prefix for the parachain (42 is generic substrate)
 const SS58_PREFIX = 42;
+
+/**
+ * Convert a public key to SS58 address
+ */
+function toSs58Address(publicKey) {
+    // Create a dummy keypair just for the address conversion
+    const dummyKeyPair = {
+        publicKey: publicKey instanceof Uint8Array ? publicKey : new Uint8Array(publicKey),
+        sign: () => new Uint8Array(64),
+    };
+    const account = withNetworkAccount(dummyKeyPair, SS58_PREFIX);
+    return account.ss58Address;
+}
 
 /**
  * Create a signer from a derivation path (e.g., "//Alice")
@@ -28,11 +42,19 @@ function createSigner(derivationPath) {
     const miniSecret = entropyToMiniSecret(entropy);
     const derive = sr25519CreateDerive(miniSecret);
     const keyPair = derive(derivationPath);
+    const account = withNetworkAccount(keyPair, SS58_PREFIX);
+
+    // Create a PAPI-compatible signer
+    const signer = getPolkadotSigner(
+        account.publicKey,
+        "Sr25519",
+        (input) => keyPair.sign(input)
+    );
 
     return {
-        publicKey: keyPair.publicKey,
-        address: ss58Encode(keyPair.publicKey, SS58_PREFIX),
-        sign: (data) => keyPair.sign(data),
+        publicKey: account.publicKey,
+        address: account.ss58Address,
+        signer,
     };
 }
 
@@ -65,19 +87,19 @@ async function createCollection(client, signer, admin) {
         admin: { type: "Id", value: admin },
         config: {
             settings: 0n, // All settings disabled by default
-            max_supply: null,
+            max_supply: undefined,
             mint_settings: {
                 mint_type: { type: "Issuer" },
-                price: null,
-                start_block: null,
-                end_block: null,
+                price: undefined,
+                start_block: undefined,
+                end_block: undefined,
                 default_item_settings: 0n,
             },
         },
     });
 
     // Sign and submit
-    const result = await tx.signAndSubmit(signer);
+    const result = await tx.signAndSubmit(signer.signer);
 
     console.log(`Transaction included in block: ${result.block.hash}`);
 
@@ -108,7 +130,7 @@ async function mintNft(client, signer, collectionId, itemId, mintTo) {
         witness_data: null,
     });
 
-    const result = await tx.signAndSubmit(signer);
+    const result = await tx.signAndSubmit(signer.signer);
 
     console.log(`NFT minted! Block: ${result.block.hash}`);
 
@@ -137,7 +159,7 @@ async function setMetadata(client, signer, collectionId, itemId, metadata) {
         data: metadata,
     });
 
-    const result = await tx.signAndSubmit(signer);
+    const result = await tx.signAndSubmit(signer.signer);
     console.log(`Metadata set! Block: ${result.block.hash}`);
 
     return true;
@@ -152,7 +174,7 @@ async function queryNftOwner(client, collectionId, itemId) {
     try {
         const item = await api.query.Nfts.Item.getValue(collectionId, itemId);
         if (item) {
-            return ss58Encode(item.owner, SS58_PREFIX);
+            return toSs58Address(item.owner);
         }
     } catch (e) {
         // Item doesn't exist
@@ -183,13 +205,13 @@ async function main() {
         console.log("\n--- Setting up Parachain A ---");
 
         // Create collection on Parachain A
-        const collectionIdA = await createCollection(clientA, alice, alice.publicKey);
+        const collectionIdA = await createCollection(clientA, alice, alice.address);
 
         if (collectionIdA !== null) {
             // Mint NFTs on Parachain A
-            await mintNft(clientA, alice, collectionIdA, 1, alice.publicKey);
-            await mintNft(clientA, alice, collectionIdA, 2, alice.publicKey);
-            await mintNft(clientA, alice, collectionIdA, 3, bob.publicKey);
+            await mintNft(clientA, alice, collectionIdA, 1, alice.address);
+            await mintNft(clientA, alice, collectionIdA, 2, alice.address);
+            await mintNft(clientA, alice, collectionIdA, 3, bob.address);
 
             // Set metadata
             await setMetadata(clientA, alice, collectionIdA, 1, "NFT #1 - Ready for XCM transfer");
@@ -199,11 +221,11 @@ async function main() {
         console.log("\n--- Setting up Parachain B ---");
 
         // Create collection on Parachain B (for receiving foreign NFTs)
-        const collectionIdB = await createCollection(clientB, bob, bob.publicKey);
+        const collectionIdB = await createCollection(clientB, bob, bob.address);
 
         if (collectionIdB !== null) {
             // Mint a local NFT on Parachain B
-            await mintNft(clientB, bob, collectionIdB, 1, bob.publicKey);
+            await mintNft(clientB, bob, collectionIdB, 1, bob.address);
             await setMetadata(clientB, bob, collectionIdB, 1, "Local NFT on Parachain B");
         }
 
