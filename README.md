@@ -32,18 +32,25 @@ npm install -g @zombienet/cli
 
 ### Installing Polkadot Binaries
 
-Download pre-built binaries from the [Polkadot SDK releases](https://github.com/paritytech/polkadot-sdk/releases):
+Download pre-built binaries from the [Polkadot SDK releases](https://github.com/paritytech/polkadot-sdk/releases).
+
+**Important:** Use `polkadot-stable2503-1` to match the parachain template version (v0.0.4-stable2503-3).
 
 ```bash
 # For macOS ARM (Apple Silicon)
 curl -L -o ~/.cargo/bin/polkadot \
-  https://github.com/paritytech/polkadot-sdk/releases/download/polkadot-stable2512/polkadot-aarch64-apple-darwin
+  https://github.com/paritytech/polkadot-sdk/releases/download/polkadot-stable2503-1/polkadot-aarch64-apple-darwin
 curl -L -o ~/.cargo/bin/polkadot-parachain \
-  https://github.com/paritytech/polkadot-sdk/releases/download/polkadot-stable2512/polkadot-parachain-aarch64-apple-darwin
+  https://github.com/paritytech/polkadot-sdk/releases/download/polkadot-stable2503-1/polkadot-parachain-aarch64-apple-darwin
 curl -L -o ~/.cargo/bin/polkadot-omni-node \
-  https://github.com/paritytech/polkadot-sdk/releases/download/polkadot-stable2512/polkadot-omni-node-aarch64-apple-darwin
+  https://github.com/paritytech/polkadot-sdk/releases/download/polkadot-stable2503-1/polkadot-omni-node-aarch64-apple-darwin
+curl -L -o ~/.cargo/bin/polkadot-execute-worker \
+  https://github.com/paritytech/polkadot-sdk/releases/download/polkadot-stable2503-1/polkadot-execute-worker-aarch64-apple-darwin
+curl -L -o ~/.cargo/bin/polkadot-prepare-worker \
+  https://github.com/paritytech/polkadot-sdk/releases/download/polkadot-stable2503-1/polkadot-prepare-worker-aarch64-apple-darwin
 
-chmod +x ~/.cargo/bin/polkadot ~/.cargo/bin/polkadot-parachain ~/.cargo/bin/polkadot-omni-node
+chmod +x ~/.cargo/bin/polkadot ~/.cargo/bin/polkadot-parachain ~/.cargo/bin/polkadot-omni-node \
+  ~/.cargo/bin/polkadot-execute-worker ~/.cargo/bin/polkadot-prepare-worker
 
 # For Linux x86_64, use the binaries without the platform suffix
 # For other platforms, check the release page for available binaries
