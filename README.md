@@ -17,7 +17,7 @@ This repository provides a working example of:
 - [Zombienet](https://github.com/paritytech/zombienet)
 - `polkadot` and `polkadot-omni-node` binaries
 
-### Install Dependencies
+### Installing Dependencies
 
 ```bash
 # Install Rust
@@ -28,6 +28,32 @@ rustup target add wasm32-unknown-unknown
 
 # Install Zombienet
 npm install -g @zombienet/cli
+```
+
+### Installing Polkadot Binaries
+
+Download pre-built binaries from the [Polkadot SDK releases](https://github.com/paritytech/polkadot-sdk/releases):
+
+```bash
+# For macOS ARM (Apple Silicon)
+curl -L -o ~/.cargo/bin/polkadot \
+  https://github.com/paritytech/polkadot-sdk/releases/download/polkadot-stable2512/polkadot-aarch64-apple-darwin
+curl -L -o ~/.cargo/bin/polkadot-parachain \
+  https://github.com/paritytech/polkadot-sdk/releases/download/polkadot-stable2512/polkadot-parachain-aarch64-apple-darwin
+curl -L -o ~/.cargo/bin/polkadot-omni-node \
+  https://github.com/paritytech/polkadot-sdk/releases/download/polkadot-stable2512/polkadot-omni-node-aarch64-apple-darwin
+
+chmod +x ~/.cargo/bin/polkadot ~/.cargo/bin/polkadot-parachain ~/.cargo/bin/polkadot-omni-node
+
+# For Linux x86_64, use the binaries without the platform suffix
+# For other platforms, check the release page for available binaries
+```
+
+Verify installation:
+```bash
+polkadot --version
+polkadot-omni-node --version
+zombienet --version
 ```
 
 ## Project Structure
@@ -41,11 +67,16 @@ nonfungible-adapter-tutorial/
 │       └── configs/
 │           ├── mod.rs                # pallet-nfts configuration
 │           └── xcm_config.rs         # XCM + NftsMatcher configuration
+├── chain-specs/
+│   ├── parachain-a.json              # Chain spec for Para A (id: 1000)
+│   ├── parachain-a-raw.json          # Raw format chain spec
+│   ├── parachain-b.json              # Chain spec for Para B (id: 1001)
+│   └── parachain-b-raw.json          # Raw format chain spec
 ├── zombienet/
 │   └── network.toml                  # Zombienet config for two parachains
 ├── scripts/
-│   ├── setup-collections.js          # Create NFT collections
-│   └── transfer-nft.js               # Cross-chain transfer demo
+│   ├── setup-collections.js          # Create NFT collections (PAPI)
+│   └── transfer-nft.js               # Cross-chain transfer demo (PAPI)
 └── README.md
 ```
 
@@ -57,26 +88,97 @@ nonfungible-adapter-tutorial/
 cargo build --release
 ```
 
-### 2. Spawn the Network
+### 2. (Optional) Regenerate Chain Specs
+
+Chain specs are pre-built in `chain-specs/`, but you can regenerate them:
 
 ```bash
-zombienet spawn zombienet/network.toml
+# List available presets
+polkadot-omni-node chain-spec-builder list-presets \
+  --runtime-wasm-path target/release/wbuild/parachain-template-runtime/parachain_template_runtime.compact.compressed.wasm
+
+# Generate chain specs
+polkadot-omni-node chain-spec-builder -c chain-specs/parachain-a.json create \
+  --runtime-wasm-path target/release/wbuild/parachain-template-runtime/parachain_template_runtime.compact.compressed.wasm \
+  named-preset parachain-a
+
+polkadot-omni-node chain-spec-builder -c chain-specs/parachain-b.json create \
+  --runtime-wasm-path target/release/wbuild/parachain-template-runtime/parachain_template_runtime.compact.compressed.wasm \
+  named-preset parachain-b
+
+# Add para_id and relay_chain to the chain specs (required for Zombienet)
+# Edit chain-specs/parachain-a.json: add "para_id": 1000, "relay_chain": "rococo-local"
+# Edit chain-specs/parachain-b.json: add "para_id": 1001, "relay_chain": "rococo-local"
+
+# Convert to raw format
+polkadot-omni-node chain-spec-builder -c chain-specs/parachain-a-raw.json convert-to-raw chain-specs/parachain-a.json
+polkadot-omni-node chain-spec-builder -c chain-specs/parachain-b-raw.json convert-to-raw chain-specs/parachain-b.json
+```
+
+### 3. Spawn the Network
+
+```bash
+zombienet spawn --provider native zombienet/network.toml
 ```
 
 This spawns:
 - Rococo local relay chain (Alice + Bob validators)
-- Parachain A (para_id: 1000) with Alice as collator
-- Parachain B (para_id: 1001) with Bob as collator
+- Parachain A (para_id: 1000) - NFT Parachain A
+- Parachain B (para_id: 1001) - NFT Parachain B
 - Bidirectional HRMP channels between parachains
 
-### 3. Run Demo Scripts
+**Note:** Zombienet assigns dynamic ports. Check the output for RPC endpoints:
+```
+# Look for lines like:
+# collator-a: --rpc-port 52205
+# collator-b: --rpc-port 52209
+```
+
+### 4. Demo with Polkadot.js Apps (Recommended)
+
+The easiest way to test NFT operations is using the Polkadot.js Apps UI:
+
+1. Open https://polkadot.js.org/apps/
+2. Connect to your local parachain (Settings > custom endpoint)
+   - Use `ws://127.0.0.1:<PORT>` where PORT is from Zombienet output
+3. Navigate to Developer > Extrinsics
+4. Test NFT operations:
+
+**Create a Collection:**
+- Pallet: `nfts`
+- Call: `create`
+- admin: Select Alice
+- config: Use defaults
+
+**Mint an NFT:**
+- Pallet: `nfts`
+- Call: `mint`
+- collection: 0 (first collection)
+- item: 1
+- mintTo: Select recipient
+
+**Cross-chain Transfer:**
+- Pallet: `polkadotXcm`
+- Call: `limitedReserveTransferAssets`
+- dest: `{ V4: { parents: 1, interior: { X1: [{ Parachain: 1001 }] } } }`
+- beneficiary: `{ V4: { parents: 0, interior: { X1: [{ AccountId32: { id: <recipient_hex> } }] } } }`
+- assets: See XCM Message Structure below
+
+### 5. (Alternative) Run Demo Scripts
 
 ```bash
 cd scripts
 npm install
+
+# Set the RPC ports from Zombienet output
+export PARA_A_WS="ws://127.0.0.1:<PORT_A>"
+export PARA_B_WS="ws://127.0.0.1:<PORT_B>"
+
 npm run setup   # Create NFT collections
 npm run transfer # Demo cross-chain transfer
 ```
+
+**Note:** The PAPI scripts may experience memory issues when parsing large chain metadata. For reliable testing, use Polkadot.js Apps instead.
 
 ## Key Concepts
 
@@ -178,18 +280,6 @@ Two presets are available for the two parachains:
 | `parachain-a` | 1000 | Alice | Alice |
 | `parachain-b` | 1001 | Bob | Bob |
 
-Generate chain specs:
-
-```bash
-# Parachain A
-polkadot-omni-node build-spec --chain ./target/release/wbuild/parachain-template-runtime/parachain_template_runtime.wasm \
-    --genesis-preset parachain-a > chain-spec-a.json
-
-# Parachain B
-polkadot-omni-node build-spec --chain ./target/release/wbuild/parachain-template-runtime/parachain_template_runtime.wasm \
-    --genesis-preset parachain-b > chain-spec-b.json
-```
-
 ## Cross-Chain NFT Transfer Flow
 
 ### Reserve Transfer (Recommended)
@@ -200,22 +290,46 @@ polkadot-omni-node build-spec --chain ./target/release/wbuild/parachain-template
 
 ```
 Parachain A                    Parachain B
-    │                              │
-    │ 1. Lock NFT                  │
-    │    (to sovereign account)   │
-    │                              │
-    │──── 2. XCM Reserve Transfer ─────│
-    │                              │
-    │                    3. Mint derivative
-    │                       to recipient
+    |                              |
+    | 1. Lock NFT                  |
+    |    (to sovereign account)   |
+    |                              |
+    |---- 2. XCM Reserve Transfer ---->|
+    |                              |
+    |                    3. Mint derivative
+    |                       to recipient
 ```
 
-### XCM Message Structure (using PAPI)
+### XCM Message Structure
+
+For Polkadot.js Apps, construct the assets parameter as:
+
+```json
+{
+  "V4": [
+    {
+      "id": {
+        "parents": 0,
+        "interior": {
+          "X2": [
+            { "PalletInstance": 51 },
+            { "GeneralIndex": 0 }
+          ]
+        }
+      },
+      "fun": {
+        "NonFungible": {
+          "Index": 1
+        }
+      }
+    }
+  ]
+}
+```
+
+For PAPI (JavaScript):
 
 ```javascript
-import { createClient } from "polkadot-api";
-
-// Build NFT asset for XCM
 const assets = {
     type: "V4",
     value: [{
@@ -235,15 +349,6 @@ const assets = {
         },
     }],
 };
-
-// Reserve transfer
-const tx = api.tx.PolkadotXcm.limited_reserve_transfer_assets({
-    dest,        // V4 Location to sibling parachain
-    beneficiary, // V4 Location for recipient account
-    assets,      // NFT asset representation
-    fee_asset_item: 0,
-    weight_limit: { type: "Unlimited" },
-});
 ```
 
 ## Extending This Tutorial
@@ -299,16 +404,35 @@ cargo build --release
 # Check binaries are in PATH
 which polkadot
 which polkadot-omni-node
+which polkadot-parachain
 
-# Increase timeout if needed
-# Edit zombienet/network.toml: timeout = 2000
+# Use native provider on macOS
+zombienet spawn --provider native zombienet/network.toml
+
+# Increase timeout if needed (edit zombienet/network.toml)
+# timeout = 2000
 ```
+
+### Binary Architecture Mismatch (macOS)
+
+If you see "cannot execute binary file", ensure you downloaded the correct binary:
+- Apple Silicon (M1/M2/M3): Use `aarch64-apple-darwin` binaries
+- Intel Mac: Use `x86_64-apple-darwin` binaries
+
+### PAPI Script Memory Issues
+
+The demo scripts use `getUnsafeApi()` which dynamically generates types from metadata. This can cause memory issues with large runtimes. Solutions:
+
+1. **Use Polkadot.js Apps** - Recommended for testing
+2. **Generate typed descriptors** - Run `papi codegen` against your chain
+3. **Increase Node memory** - `NODE_OPTIONS="--max-old-space-size=8192" npm run setup`
 
 ### XCM Transfer Fails
 
 1. Verify HRMP channels are open between parachains
 2. Check that both chains have sufficient balance for fees
 3. Verify the asset location format matches the NftsMatcher
+4. Check XCM events on both chains for error details
 
 ## Resources
 
@@ -317,6 +441,7 @@ which polkadot-omni-node
 - [XCM Configuration](https://docs.polkadot.com/develop/interoperability/xcm-config/)
 - [NonFungiblesAdapter Source](https://github.com/paritytech/polkadot-sdk/blob/master/polkadot/xcm/xcm-builder/src/nonfungibles_adapter.rs)
 - [Polkadot API (PAPI)](https://papi.how/) - Modern TypeScript API for Polkadot
+- [Zombienet Documentation](https://paritytech.github.io/zombienet/)
 
 ## License
 
